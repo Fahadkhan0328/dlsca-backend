@@ -10,16 +10,19 @@ import shutil
 
 app = FastAPI()
 
-# 🛠️ UPDATE: More robust CORS for Vercel
-# Adding both the production domain and the specific preview domain causing issues
-origins = [
-    "https://dlsca-frontend-3jgl.vercel.app",
-    "https://dlsca-frontend-3jgl-kdcmm08q1-fahads-projects-4ecec35f.vercel.app"
-]
+# 🌐 ENVIRONMENT VARIABLES
+# Railway will use these, or fallback to the provided defaults
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://dlsca-frontend-3jgl.vercel.app")
+JWKS_URL = os.environ.get("JWKS_URL", f"{FRONTEND_URL}/api/auth/jwks")
 
+# 🛠️ CORS FIX: Replaced "*" with specific origins. 
+# FastAPI rejects ["*"] when allow_credentials=True for security reasons.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, # Or use ["*"] temporarily to absolutely rule out CORS
+    allow_origins=[
+        FRONTEND_URL, 
+        "http://localhost:5173" # Kept localhost so your local testing still works
+    ], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,9 +30,6 @@ app.add_middleware(
 
 security = HTTPBearer()
 
-# 🌐 PRODUCTION URLS
-# We use the main production URL for the JWKS keys
-JWKS_URL = "https://dlsca-frontend-3jgl.vercel.app/api/auth/jwks"
 jwks_client = PyJWKClient(JWKS_URL)
 
 def verify_user_token(token: str):
@@ -38,17 +38,15 @@ def verify_user_token(token: str):
         token_alg = unverified_header.get("alg")
         signing_key = jwks_client.get_signing_key_from_jwt(token)
         
-        # 🛠️ UPDATE: If you get a 403, it's often an audience mismatch.
-        # This MUST match the 'baseURL' set in your SvelteKit Better Auth config exactly.
+        # 🛠️ AUDIENCE MATCH: Automatically syncs with FRONTEND_URL
         return jwt.decode(
             token, 
             signing_key.key, 
             algorithms=[token_alg], 
-            audience="https://dlsca-frontend-3jgl.vercel.app"
+            audience=FRONTEND_URL
         )
     except Exception as e:
         print(f"❌ JWT Verification Error: {str(e)}")
-        # Adding more detail to the error so you can see it in Railway logs
         raise HTTPException(status_code=401, detail=f"Unauthorized: {str(e)}")
 
 def downsample_trace(arr: np.ndarray, max_points: int = 1000) -> list:
@@ -123,5 +121,4 @@ async def upload_trace(
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    # Using 0.0.0.0 is mandatory for Railway
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
