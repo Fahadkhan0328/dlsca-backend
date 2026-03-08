@@ -1,0 +1,10 @@
+# Environments
+ven/
+__pycache__/
+
+# Data files
+data/
+*.npy
+
+# Environment variables
+.env
