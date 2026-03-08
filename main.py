@@ -10,10 +10,16 @@ import shutil
 
 app = FastAPI()
 
-# Enable CORS for your new Vercel production domain
+# 🛠️ UPDATE: More robust CORS for Vercel
+# Adding both the production domain and the specific preview domain causing issues
+origins = [
+    "https://dlsca-frontend-3jgl.vercel.app",
+    "https://dlsca-frontend-3jgl-kdcmm08q1-fahads-projects-4ecec35f.vercel.app"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://dlsca-frontend-3jgl.vercel.app"], 
+    allow_origins=origins, # Or use ["*"] temporarily to absolutely rule out CORS
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -22,7 +28,7 @@ app.add_middleware(
 security = HTTPBearer()
 
 # 🌐 PRODUCTION URLS
-# Pointing to your live SvelteKit Auth endpoints
+# We use the main production URL for the JWKS keys
 JWKS_URL = "https://dlsca-frontend-3jgl.vercel.app/api/auth/jwks"
 jwks_client = PyJWKClient(JWKS_URL)
 
@@ -32,7 +38,8 @@ def verify_user_token(token: str):
         token_alg = unverified_header.get("alg")
         signing_key = jwks_client.get_signing_key_from_jwt(token)
         
-        # Verify the token was minted specifically for your live site
+        # 🛠️ UPDATE: If you get a 403, it's often an audience mismatch.
+        # This MUST match the 'baseURL' set in your SvelteKit Better Auth config exactly.
         return jwt.decode(
             token, 
             signing_key.key, 
@@ -41,10 +48,10 @@ def verify_user_token(token: str):
         )
     except Exception as e:
         print(f"❌ JWT Verification Error: {str(e)}")
+        # Adding more detail to the error so you can see it in Railway logs
         raise HTTPException(status_code=401, detail=f"Unauthorized: {str(e)}")
 
 def downsample_trace(arr: np.ndarray, max_points: int = 1000) -> list:
-    """Reduces array size while preserving leakage spikes for the UI"""
     if len(arr) <= max_points:
         return arr.tolist()
     
@@ -67,12 +74,13 @@ def get_secure_data(credentials: HTTPAuthorizationCredentials = Depends(security
     payload = verify_user_token(credentials.credentials)
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(base_dir, "data", "leakage_results.npy")
+    data_dir = os.path.join(base_dir, "data")
+    file_path = os.path.join(data_dir, "leakage_results.npy")
     
     if not os.path.exists(file_path):
         return {
             "status": "authorized",
-            "message": "Connected! Upload a .npy file to see your first trace.",
+            "message": "Connected to Railway! No data found yet.",
             "data": { "results": [], "filename": "None" }
         }
 
@@ -114,6 +122,6 @@ async def upload_trace(
         raise HTTPException(status_code=400, detail="Invalid .npy file format")
 
 if __name__ == "__main__":
-    # Ensure Railway can bind to the correct port
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+    # Using 0.0.0.0 is mandatory for Railway
+    uvicorn.run(app, host="0.0.0.0", port=port)
